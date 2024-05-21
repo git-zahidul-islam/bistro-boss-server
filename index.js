@@ -9,7 +9,7 @@ app.use(express.json())
 app.use(cors())
 
 // mongodb data 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://bossUser:NMFCCAKtFF8LsSGY@cluster0.oy4gwmh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -29,18 +29,31 @@ async function run() {
         const reviewCollection = client.db('bistroDB').collection('reviews')
         const cartCollection = client.db('bistroDB').collection('cart')
 
-        app.get('/menu',async(req,res)=>{
+        app.get('/menu', async (req, res) => {
             const result = await menuCollection.find().toArray()
             res.send(result)
         })
-        app.get('/reviews',async(req,res)=>{
+        app.get('/reviews', async (req, res) => {
             const result = await reviewCollection.find().toArray()
             res.send(result)
         })
-        // post api method
-        app.post('/carts',async(req,res)=>{
+
+        // cart data is here
+        app.get('/carts', async (req, res) => {
+            const email = req.query.email
+            const query = { email: email }
+            const result = await cartCollection.find(query).toArray()
+            res.send(result)
+        })
+        app.post('/carts', async (req, res) => {
             const carts = req.body;
             const result = await cartCollection.insertOne(carts)
+            res.send(result)
+        })
+        app.delete('/carts/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await cartCollection.deleteOne(query)
             res.send(result)
         })
 
@@ -58,9 +71,9 @@ run().catch(console.dir);
 
 
 // server
-app.get('/',(req,res) =>{
+app.get('/', (req, res) => {
     res.send('the bistro data server is running........')
 })
-app.listen(port,()=>{
+app.listen(port, () => {
     console.log(`the server: ${port}`);
 })
