@@ -3,11 +3,13 @@ const app = express()
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
 require('dotenv').config()
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const port = process.env.PORT || 5000
 
 // middleware
 app.use(express.json())
 app.use(cors())
+// app.use(express.static("public"));
 
 // mongodb data 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -30,6 +32,7 @@ async function run() {
         const menuCollection = client.db('bistroDB').collection('menu')
         const reviewCollection = client.db('bistroDB').collection('reviews')
         const cartCollection = client.db('bistroDB').collection('cart')
+        const paymentCollection = client.db('bistroDB').collection('payments')
 
         // jwt token api making
         app.post('/jwt', async (req, res) => {
@@ -129,16 +132,16 @@ async function run() {
             res.send(result)
         })
 
-        app.patch('/menu/:id',async(req,res)=>{
+        app.patch('/menu/:id', async (req, res) => {
             const item = req.body;
             const id = req.params.id;
-            const filter = {_id: new ObjectId(id)}
+            const filter = { _id: new ObjectId(id) }
             const updateDoc = {
                 $set: {
                     ...item
                 }
             }
-            const result = await menuCollection.updateOne(filter,updateDoc)
+            const result = await menuCollection.updateOne(filter, updateDoc)
             res.send(result)
         })
 
@@ -178,7 +181,45 @@ async function run() {
             const result = await cartCollection.deleteOne(query)
             res.send(result)
         })
+        // payments systems
+        app.post('/create-payment-intent', async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100)
+            console.log(amount, "inside the");
 
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: ['card']
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            });
+        })
+
+        app.post('/payments',async(req,res)=>{
+            const payment = req.body
+            const paymentsResult = await paymentCollection.insertOne(payment)
+
+            // karpa delete the cart
+            const query = {_id:{
+                $in: payment.cardIds.map(id => new ObjectId(id))
+            }};
+
+            const deleteResult = await cartCollection.deleteMany(query)
+
+            res.send({paymentsResult,deleteResult})
+        })
+
+        // payments get 
+        app.get('/payments/:email',verifyToken,async(req,res)=>{
+            const query = {email: req.params.email}
+            if (req.params.email !== req.decoded?.email){
+                return res.status(403).send({message: 'forbidden access'})
+            }
+            const result = await paymentCollection.find(query).toArray()
+            res.send(result)
+        })
 
 
         // Send a ping to confirm a successful connection
