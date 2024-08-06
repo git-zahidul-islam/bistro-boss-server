@@ -8,7 +8,13 @@ const port = process.env.PORT || 5000
 
 // middleware
 app.use(express.json())
-app.use(cors())
+app.use(cors({
+    origin: [
+        "http://localhost:5173",
+        "https://bistro-boss-432b7.web.app",
+        "https://bistro-boss-432b7.firebaseapp.com",
+      ]
+}))
 // app.use(express.static("public"));
 
 // mongodb data 
@@ -197,30 +203,88 @@ async function run() {
             });
         })
 
-        app.post('/payments',async(req,res)=>{
+        app.post('/payments', async (req, res) => {
             const payment = req.body
             const paymentsResult = await paymentCollection.insertOne(payment)
 
             // karpa delete the cart
-            const query = {_id:{
-                $in: payment.cardIds.map(id => new ObjectId(id))
-            }};
+            const query = {
+                _id: {
+                    $in: payment.cardIds.map(id => new ObjectId(id))
+                }
+            };
 
             const deleteResult = await cartCollection.deleteMany(query)
 
-            res.send({paymentsResult,deleteResult})
+            res.send({ paymentsResult, deleteResult })
         })
 
         // payments get 
-        app.get('/payments/:email',verifyToken,async(req,res)=>{
-            const query = {email: req.params.email}
-            if (req.params.email !== req.decoded?.email){
-                return res.status(403).send({message: 'forbidden access'})
+        app.get('/payments/:email', verifyToken, async (req, res) => {
+            const query = { email: req.params.email }
+            if (req.params.email !== req.decoded?.email) {
+                return res.status(403).send({ message: 'forbidden access' })
             }
             const result = await paymentCollection.find(query).toArray()
             res.send(result)
         })
+        // admin starts
+        app.get('/admin-stats', verifyToken, adminVerify, async (req, res) => {
+            const user = await userCollection.estimatedDocumentCount()
+            const menuItems = await menuCollection.estimatedDocumentCount()
+            const order = await paymentCollection.estimatedDocumentCount()
+            const revenueCal = await paymentCollection.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: { $sum: '$price' }
+                    }
+                },
+            ]).toArray()
+            const totalRevenue = revenueCal.length > 0 ? revenueCal[0].totalRevenue : 0;
+            res.send({
+                user,
+                menuItems,
+                order,
+                totalRevenue
+            })
+        })
+        // use aggregate pipeline
+        app.get('/order-stats', verifyToken, adminVerify, async (req, res) => {
+            const result = await paymentCollection.aggregate([
+                {
+                    $unwind: '$menuItemIds'
+                },
+                {
+                    $lookup: {
+                        from: 'menu',
+                        localField: 'menuItemIds',
+                        foreignField: '_id',
+                        as: 'menuItems',
+                    }
+                },
+                {
+                    $unwind: '$menuItems'
+                },
+                {
+                    $group: {
+                        _id: '$menuItems.category',
+                        quantity: { $sum: 1 },
+                        revenue: { $sum: '$menuItems.price' }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        category: '$_id',
+                        quantity: '$quantity',
+                        revenue: '$revenue'
+                    }
+                }
+            ]).toArray()
 
+            res.send(result)
+        })
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
